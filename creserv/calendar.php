@@ -6,106 +6,92 @@ if (!isset($_SESSION['user_id'])) {
     header("Location: users/login.php");
     exit;
 }
-
-$db = new Database();
-$conn = $db->connect();
-
-// For availability check
-$stmt = $conn->query("SELECT event_date, start_time, end_time FROM event WHERE event_date >= CURDATE()");
-$events = $stmt->fetchAll(PDO::FETCH_ASSOC);
-$eventSlots = [];
-foreach ($events as $e) {
-    $eventSlots[] = [
-        'date' => $e['event_date'],
-        'start' => $e['start_time'],
-        'end' => $e['end_time']
-    ];
-}
-
-$is_admin = $_SESSION['is_admin'] ?? 0;
-$username = htmlspecialchars($_SESSION['username']);
 ?>
 <!DOCTYPE html>
 <html lang="en">
 <head>
-  <meta charset="UTF-8">
-  <title>Church Reservation Dashboard</title>
-  <link rel="stylesheet" href="style/style.css">
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Church Reservation System</title>
+    <link rel="stylesheet" href="style/style.css">
 </head>
 <body>
-  <div class="container">
+    <div class="container">
+        <div class="header">
+            <div class="header-left">
+                <span class="username"><?= htmlspecialchars($_SESSION['username']) ?></span>
+            </div>
+            <div class="header-right">
+                <a href="users/history.php" class="btn-link">My History</a>
+                <?php if (isset($_SESSION['is_admin']) && $_SESSION['is_admin'] == 1): ?>
+                    <a href="admin/admin_dashboard.php" class="btn-link admin-link">Admin Panel</a>
+                <?php else: ?>
+                    <a href="users/account.php" class="btn-link">Account</a>
+                <?php endif; ?>
+                <a href="users/logout.php" class="btn-secondary logout-btn">Logout</a>
+            </div>
+        </div>
 
-    <!-- Header -->
-    <div class="header">
-      <div class="header-left">
-        <a href="users/history.php"><?= $username ?></a>
-      </div>
-      <div class="header-right">
-        <?php if ($is_admin): ?>
-          <a href="admin/admin_dashboard.php" class="btn-secondary">Admin</a>
-        <?php endif; ?>
-        <a href="users/logout.php" class="btn-secondary">Logout</a>
-      </div>
+        <div class="welcome-section">
+            <h1>Book the Church for Your Event with Ease</h1>
+            <p>Reserve a date for weddings, baptisms, and other church events.</p>
+            <button class="btn-primary btn-large" onclick="window.location.href='reserve.php'">Book Now</button>
+        </div>
+
+        <hr class="divider">
+
+        <div class="check-section">
+            <h2>Check Availability</h2>
+            <form id="checkForm" onsubmit="return checkAvailability(event)">
+                <div class="form-row">
+                    <div class="form-group">
+                        <label>Select a Date:</label>
+                        <input type="date" name="date" id="date" min="<?= date('Y-m-d') ?>" required>
+                    </div>
+
+                    <div class="form-group">
+                        <label>Start Time:</label>
+                        <input type="time" name="start_time" id="start_time" required>
+                    </div>
+                </div>
+
+                <button type="submit" class="btn-primary">Check Availability</button>
+            </form>
+
+            <p id="result" class="availability-message"></p>
+        </div>
     </div>
 
-    <h1>Book the Church for Your Event with Ease</h1>
-    <p>Reserve a date for weddings, baptisms, and other church events.</p>
-    <button onclick="window.location.href='reserve.php'">Book Now</button>
+    <script>
+        async function checkAvailability(event) {
+            event.preventDefault();
+            const date = document.getElementById('date').value;
+            const start = document.getElementById('start_time').value;
+            const resultEl = document.getElementById('result');
 
-    <hr style="margin:25px 0;">
+            if (!date || !start) {
+                resultEl.textContent = "Please select a date and time.";
+                resultEl.className = "availability-message error";
+                return;
+            }
 
-    <h2>Check Availability</h2>
-    <form method="post" id="checkForm" onsubmit="return checkDateAvailability(event)">
-      <label for="check_date">Select a Date:</label>
-      <input type="date" id="check_date" name="check_date" min="<?= date('Y-m-d') ?>">
+            resultEl.textContent = "Checking...";
+            resultEl.className = "availability-message";
 
-      <label for="check_start">Start Time:</label>
-      <input type="time" id="check_start" name="check_start">
-
-      <label for="check_end">End Time:</label>
-      <input type="time" id="check_end" name="check_end">
-
-      <input type="submit" value="Check Availability">
-    </form>
-
-    <p id="resultMsg"></p>
-  </div>
-
-  <script>
-    const bookedSlots = <?= json_encode($eventSlots) ?>;
-
-    function checkDateAvailability(e) {
-      e.preventDefault();
-      const date = document.getElementById("check_date").value;
-      const start = document.getElementById("check_start").value;
-      const end = document.getElementById("check_end").value;
-      const msg = document.getElementById("resultMsg");
-
-      if (!date || !start || !end) {
-        msg.textContent = "Please select a full date and time range.";
-        msg.className = "error";
-        return false;
-      }
-
-      let overlap = false;
-      for (const event of bookedSlots) {
-        if (event.date === date) {
-          if ((start >= event.start && start < event.end) || (end > event.start && end <= event.end)) {
-            overlap = true;
-            break;
-          }
+            try {
+                const response = await fetch('check_availability.php', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/x-www-form-urlencoded' },
+                    body: `date=${encodeURIComponent(date)}&start_time=${encodeURIComponent(start)}`
+                });
+                const result = await response.text();
+                resultEl.textContent = result;
+                resultEl.className = result.includes('available') ? 'availability-message success' : 'availability-message error';
+            } catch (error) {
+                resultEl.textContent = "Error checking availability. Please try again.";
+                resultEl.className = "availability-message error";
+            }
         }
-      }
-
-      if (overlap) {
-        msg.textContent = "That date and time is reserved.";
-        msg.className = "error";
-      } else {
-        msg.textContent = "That date and time is available!";
-        msg.className = "success";
-      }
-      return false;
-    }
-  </script>
+    </script>
 </body>
 </html>
